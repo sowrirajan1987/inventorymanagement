@@ -10,14 +10,17 @@ import {
 import useSWR from "swr";
 import { API_ENDPOINTS } from "@/lib/config";
 
+import { fetchApi } from "@/lib/api";
+
 interface HomeData {
   categoriesCount: number;
   totalItems: number;
   requestItems: number;
   lowStockCount: number;
+  userType?: string;
 }
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+const fetcher = (url: string) => fetchApi(url).then((res) => res.json());
 
 export function InventoryOverview() {
   const { data, error, isLoading } = useSWR<HomeData>(
@@ -30,20 +33,21 @@ export function InventoryOverview() {
   );
 
   const stats = [
-    {
+    ...(data?.userType === "Admin" ? [{
       title: "Master Catalogue",
       value: data?.categoriesCount ?? 0,
       description: "Total categories in your inventory system",
       icon: FolderOpen,
       variant: "primary" as const,
       href: "/categories",
-    },
+    }] : []),
     {
       title: "Inward Items",
       value: data?.totalItems ?? 0,
       description: "Total balance of items received in inventory",
       icon: Package,
       variant: "success" as const,
+      href: "/inward",
     },
     {
       title: "Outward Requests",
@@ -51,6 +55,7 @@ export function InventoryOverview() {
       description: "Total transactions processed for item requests",
       icon: ArrowUpFromLine,
       variant: "accent" as const,
+      href: "/outward",
     },
     {
       title: "Low Stock Alert",
@@ -58,6 +63,7 @@ export function InventoryOverview() {
       description: "Items below minimum stock level",
       icon: AlertTriangle,
       variant: "warning" as const,
+      href: "/low-stock-alert",
     },
   ];
 

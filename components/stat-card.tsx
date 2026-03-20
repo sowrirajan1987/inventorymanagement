@@ -44,19 +44,19 @@ export function StatCard({
   const CardWrapper = ({ children }: { children: React.ReactNode }) => {
     if (href) {
       return (
-        <Link href={href} className="block">
+        <Link href={href} className="block h-full">
           {children}
         </Link>
       );
     }
-    return <>{children}</>;
+    return <div className="h-full">{children}</div>;
   };
 
   return (
     <CardWrapper>
       <Card
         className={cn(
-          "relative overflow-hidden border transition-all duration-300 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5",
+          "relative overflow-hidden border transition-all duration-300 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5 h-full",
           variantStyles[variant],
           href && "cursor-pointer"
         )}
@@ -76,7 +76,7 @@ export function StatCard({
             </div>
             <div
               className={cn(
-                "flex h-12 w-12 items-center justify-center rounded-xl",
+                "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl",
                 iconStyles[variant]
               )}
             >

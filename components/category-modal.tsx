@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchApi } from '@/lib/api';
 import { useState, useEffect } from "react";
 import {
   Dialog,
@@ -36,13 +37,16 @@ interface CategoryModalProps {
   onSuccess?: (message: string) => void;
   formType: "Add" | "Edit" | "Delete";
   categoryId?: number | null;
+  initialData?: any;
 }
 
 interface CategoryOption {
+  id: number;
   ddvalue: string;
 }
 
 interface UnitOption {
+  id: number;
   ddvalue: string;
 }
 
@@ -52,21 +56,19 @@ export function CategoryModal({
   onSuccess,
   formType,
   categoryId,
+  initialData,
 }: CategoryModalProps) {
   const [category, setCategory] = useState("");
   const [productName, setProductName] = useState("");
   const [units, setUnits] = useState<string[]>([]);
   const [docpath, setDocpath] = useState("");
   const [lastPrice, setLastPrice] = useState("");
-  const [minStock, setMinStock] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [unitOptions, setUnitOptions] = useState<UnitOption[]>([]);
   const [dataLoading, setDataLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isNewCategory, setIsNewCategory] = useState(false);
-  const [isNewUnit, setIsNewUnit] = useState(false);
   
   // Combobox states
   const [categoryOpen, setCategoryOpen] = useState(false);
@@ -102,11 +104,8 @@ export function CategoryModal({
       setUnits([]);
       setDocpath("");
       setLastPrice("");
-      setMinStock("");
       setErrorMessage("");
       setSelectedFile(null);
-      setIsNewCategory(false);
-      setIsNewUnit(false);
       setCategorySearch("");
       setUnitSearch("");
     }
@@ -115,7 +114,7 @@ export function CategoryModal({
   // Load master data
   useEffect(() => {
     if (open) {
-      fetch(`${API_URL}/api/master?id=1`)
+      fetchApi(`${API_BASE_URL}/api/master?id=1`)
         .then((res) => res.json())
         .then((data) => {
           setCategories(data.categories || []);
@@ -128,17 +127,45 @@ export function CategoryModal({
   // Load category for Edit/Delete
   useEffect(() => {
     if ((formType === "Edit" || formType === "Delete") && categoryId && open) {
+      if (initialData) {
+        let parsedUnits: string[] = [];
+        try {
+          const rawUnits = Array.isArray(initialData.unit)
+            ? initialData.unit
+            : JSON.parse(initialData.unit || "[]");
+          parsedUnits = rawUnits.map((u: any) => {
+            const strVal = u.toString();
+            const matchedUnit = unitOptions.find((opt) => opt.ddvalue === strVal || opt.id.toString() === strVal);
+            return matchedUnit ? matchedUnit.id.toString() : strVal;
+          });
+        } catch {
+          parsedUnits = [];
+        }
+
+        setCategory(initialData.category || "");
+        setProductName(initialData.name || "");
+        setDocpath(initialData.docpath || "");
+        setLastPrice(initialData.lastprice?.toString() || "");
+        setUnits(parsedUnits);
+        return;
+      }
+
       setDataLoading(true);
 
-      fetch(`${API_URL}/api/categorydata?id=${categoryId}`)
+      fetchApi(`${API_BASE_URL}/api/categorydata?id=${categoryId}`)
         .then((res) => res.json())
         .then((data) => {
           const categoryData = data[0] || {};
           let parsedUnits: string[] = [];
           try {
-            parsedUnits = Array.isArray(categoryData.unit)
+            const rawUnits = Array.isArray(categoryData.unit)
               ? categoryData.unit
               : JSON.parse(categoryData.unit || "[]");
+            parsedUnits = rawUnits.map((u: any) => {
+              const strVal = u.toString();
+              const matchedUnit = data.units?.find((opt: any) => opt.ddvalue === strVal || opt.id.toString() === strVal);
+              return matchedUnit ? matchedUnit.id.toString() : strVal;
+            });
           } catch {
             parsedUnits = [];
           }
@@ -147,13 +174,12 @@ export function CategoryModal({
           setProductName(categoryData.name || "");
           setDocpath(categoryData.docpath || "");
           setLastPrice(categoryData.lastprice?.toString() || "");
-          setMinStock(categoryData.lowstocklevel?.toString() || "");
           setUnits(parsedUnits);
         })
         .catch((err) => console.error("Error fetching category data:", err))
         .finally(() => setDataLoading(false));
     }
-  }, [formType, categoryId, open]);
+  }, [formType, categoryId, open, initialData]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -168,8 +194,11 @@ export function CategoryModal({
       formData.append("category", category);
       formData.append("name", productName);
       formData.append("lastPrice", lastPrice);
-      formData.append("lowstocklevel", minStock);
-      units.forEach((unit) => formData.append("unit[]", unit));
+      units.forEach((unit) => {
+        const matchedUnit = unitOptions.find(opt => opt.ddvalue === unit || opt.id.toString() === unit);
+        const unitId = matchedUnit ? matchedUnit.id.toString() : unit;
+        formData.append("unit[]", unitId);
+      });
 
       if (selectedFile) {
         formData.append("document", selectedFile);
@@ -179,7 +208,7 @@ export function CategoryModal({
         formData.append("docpath", docpath);
       }
 
-      const res = await fetch(`${API_URL}/api/categoryupdate`, {
+      const res = await fetchApi(`${API_BASE_URL}/api/categoryupdate`, {
         method: "POST",
         body: formData,
       });
@@ -197,56 +226,6 @@ export function CategoryModal({
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleAddNewCategory = () => {
-    const trimmedCategory = categorySearch.trim();
-    if (!trimmedCategory) return;
-    
-    // Check if category already exists (case-insensitive)
-    const existingCategory = categories.find(
-      (c) => c.ddvalue.toLowerCase() === trimmedCategory.toLowerCase()
-    );
-    
-    if (existingCategory) {
-      setCategory(existingCategory.ddvalue);
-      setErrorMessage(`Category "${existingCategory.ddvalue}" already exists. Selected it for you.`);
-      setIsNewCategory(false);
-    } else {
-      setCategories([...categories, { ddvalue: trimmedCategory }]);
-      setCategory(trimmedCategory);
-      setIsNewCategory(true);
-      setErrorMessage("");
-    }
-    setCategorySearch("");
-    setCategoryOpen(false);
-  };
-
-  const handleAddNewUnit = () => {
-    const trimmedUnit = unitSearch.trim();
-    if (!trimmedUnit) return;
-    
-    // Check if unit already exists in selected units (case-insensitive)
-    if (units.some((u) => u.toLowerCase() === trimmedUnit.toLowerCase())) {
-      setErrorMessage(`Unit "${trimmedUnit}" is already selected.`);
-      return;
-    }
-    
-    // Check if unit exists in available options (case-insensitive)
-    const existingUnit = unitOptions.find(
-      (u) => u.ddvalue.toLowerCase() === trimmedUnit.toLowerCase()
-    );
-    
-    if (existingUnit) {
-      setUnits([...units, existingUnit.ddvalue]);
-    } else {
-      setUnits([...units, trimmedUnit]);
-      setUnitOptions([...unitOptions, { ddvalue: trimmedUnit }]);
-      setIsNewUnit(true);
-    }
-    setUnitSearch("");
-    setUnitOpen(false);
-    setErrorMessage("");
   };
 
   const handleSelectUnit = (unitValue: string) => {
@@ -271,15 +250,8 @@ export function CategoryModal({
     (u) => 
       u.ddvalue && 
       u.ddvalue.toLowerCase().includes(unitSearch.toLowerCase()) &&
+      !units.includes(u.id.toString()) &&
       !units.includes(u.ddvalue)
-  );
-
-  // Check if search term matches any existing option
-  const categorySearchMatchesExisting = categories.some(
-    (c) => c.ddvalue.toLowerCase() === categorySearch.trim().toLowerCase()
-  );
-  const unitSearchMatchesExisting = unitOptions.some(
-    (u) => u.ddvalue.toLowerCase() === unitSearch.trim().toLowerCase()
   );
 
   return (
@@ -323,20 +295,9 @@ export function CategoryModal({
                         value={categorySearch}
                         onValueChange={setCategorySearch}
                       />
-                      <CommandList>
+                      <CommandList className="max-h-[200px] overflow-y-auto">
                         <CommandEmpty className="py-2 px-4 text-sm text-muted-foreground">
-                          {categorySearch.trim() ? (
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
-                              onClick={handleAddNewCategory}
-                            >
-                              <Plus className="h-4 w-4" />
-                              Add &quot;{categorySearch.trim()}&quot; as new category
-                            </button>
-                          ) : (
-                            "No categories found."
-                          )}
+                          No categories found.
                         </CommandEmpty>
                         <CommandGroup>
                           {filteredCategories.map((c, idx) => (
@@ -345,7 +306,6 @@ export function CategoryModal({
                               value={c.ddvalue}
                               onSelect={(currentValue) => {
                                 setCategory(currentValue);
-                                setIsNewCategory(false);
                                 setCategoryOpen(false);
                                 setCategorySearch("");
                               }}
@@ -359,28 +319,11 @@ export function CategoryModal({
                               {c.ddvalue}
                             </CommandItem>
                           ))}
-                          {/* Show "Add new" option if search doesn't match existing */}
-                          {categorySearch.trim() && !categorySearchMatchesExisting && filteredCategories.length > 0 && (
-                            <CommandItem
-                              value={`add-new-${categorySearch}`}
-                              onSelect={handleAddNewCategory}
-                              className="text-primary"
-                            >
-                              <Plus className="mr-2 h-4 w-4" />
-                              Add &quot;{categorySearch.trim()}&quot; as new category
-                            </CommandItem>
-                          )}
                         </CommandGroup>
                       </CommandList>
                     </Command>
                   </PopoverContent>
                 </Popover>
-                {isNewCategory && (
-                  <p className="text-sm text-warning flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    This category will be added as a new entry.
-                  </p>
-                )}
               </div>
             ) : (
               <div className="space-y-2">
@@ -408,13 +351,16 @@ export function CategoryModal({
                 <Label className="text-foreground">Units</Label>
                 {units.length > 0 && (
                   <div className="flex flex-wrap gap-2 mb-2">
-                    {units.map((unit, idx) => (
+                    {units.map((unit, idx) => {
+                      const matchedUnit = unitOptions.find(u => u.id.toString() === unit);
+                      const displayValue = matchedUnit ? matchedUnit.ddvalue : unit;
+                      return (
                       <Badge
                         key={idx}
                         variant="secondary"
                         className="flex items-center gap-1"
                       >
-                        {unit}
+                        {displayValue}
                         <button
                           type="button"
                           onClick={() => handleRemoveUnit(unit)}
@@ -423,7 +369,7 @@ export function CategoryModal({
                           <X className="h-3 w-3" />
                         </button>
                       </Badge>
-                    ))}
+                    )})}
                   </div>
                 )}
                 <Popover open={unitOpen} onOpenChange={setUnitOpen}>
@@ -445,56 +391,25 @@ export function CategoryModal({
                         value={unitSearch}
                         onValueChange={setUnitSearch}
                       />
-                      <CommandList>
+                      <CommandList className="max-h-[200px] overflow-y-auto">
                         <CommandEmpty className="py-2 px-4 text-sm text-muted-foreground">
-                          {unitSearch.trim() ? (
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
-                              onClick={handleAddNewUnit}
-                            >
-                              <Plus className="h-4 w-4" />
-                              Add &quot;{unitSearch.trim()}&quot; as new unit
-                            </button>
-                          ) : (
-                            "No units found."
-                          )}
+                          No units found.
                         </CommandEmpty>
                         <CommandGroup>
                           {filteredUnits.map((u, idx) => (
                             <CommandItem
                               key={idx}
-                              value={u.ddvalue}
-                              onSelect={() => handleSelectUnit(u.ddvalue)}
+                              value={u.id.toString()}
+                              onSelect={(val) => handleSelectUnit(val)}
                             >
                               {u.ddvalue}
                             </CommandItem>
                           ))}
-                          {/* Show "Add new" option if search doesn't match existing */}
-                          {unitSearch.trim() && 
-                           !unitSearchMatchesExisting && 
-                           !units.some(u => u.toLowerCase() === unitSearch.trim().toLowerCase()) &&
-                           filteredUnits.length > 0 && (
-                            <CommandItem
-                              value={`add-new-${unitSearch}`}
-                              onSelect={handleAddNewUnit}
-                              className="text-primary"
-                            >
-                              <Plus className="mr-2 h-4 w-4" />
-                              Add &quot;{unitSearch.trim()}&quot; as new unit
-                            </CommandItem>
-                          )}
                         </CommandGroup>
                       </CommandList>
                     </Command>
                   </PopoverContent>
                 </Popover>
-                {isNewUnit && (
-                  <p className="text-sm text-warning flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    New unit(s) will be added.
-                  </p>
-                )}
               </div>
             )}
 
@@ -503,7 +418,7 @@ export function CategoryModal({
               <div className="space-y-2">
                 <Label className="text-foreground">Current Image</Label>
                 <img
-                  src={`${API_URL}/api/image/${docpath}`}
+                  src={`${API_BASE_URL}/api/image/${docpath}`}
                   alt="Category"
                   className="w-32 h-32 object-cover rounded-lg border"
                 />
@@ -534,20 +449,6 @@ export function CategoryModal({
                 step="0.01"
                 value={lastPrice}
                 onChange={(e) => setLastPrice(e.target.value)}
-                disabled={formType === "Delete"}
-                required={formType !== "Delete"}
-                className="bg-background text-foreground"
-              />
-            </div>
-
-            {/* Minimum Stock Level */}
-            <div className="space-y-2">
-              <Label htmlFor="minStock" className="text-foreground">Minimum Stock Level</Label>
-              <Input
-                id="minStock"
-                type="number"
-                value={minStock}
-                onChange={(e) => setMinStock(e.target.value)}
                 disabled={formType === "Delete"}
                 required={formType !== "Delete"}
                 className="bg-background text-foreground"

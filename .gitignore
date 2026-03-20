@@ -1,13 +1,32 @@
-# v0 runtime files
-__v0_runtime_loader.js
-__v0_devtools.tsx
-__v0_jsx-dev-runtime.ts
-
-# Common ignores
+# Node modules
 node_modules/
+
+# Environment variables (IMPORTANT)
+.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# Build / dist folders
+out/
 .next/
-.env*.local
+
+# OS files
 .DS_Store
-dist
-build
-uploads
+Thumbs.db
+
+# Editor folders
+.vscode/
+.idea/
+
+# Uploads / generated files (if any)
+uploads/
+temp/
+tmp/
+
+# Database backups (based on your structure)
+dbbackup/
+
+# Coverage (if using testing)
+coverage/

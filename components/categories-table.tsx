@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchApi } from '@/lib/api';
 import { useState, useCallback, useRef, useEffect } from "react";
 import { AgGridReact } from "ag-grid-react";
 import type { ColDef, GridReadyEvent, GridApi } from "ag-grid-community";
@@ -15,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { CategoryModal } from "@/components/category-modal";
 import { ImageModal } from "@/components/image-modal";
-import { Plus, Pencil, Trash2, ArrowLeft, Search, Download, Package, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Download, Package, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { API_BASE_URL, API_ENDPOINTS } from "@/lib/config";
 
@@ -29,7 +30,6 @@ interface CategoryRow {
   name: string;
   docpath: string;
   lastprice: number;
-  lowstocklevel: number;
   modifiedby: string;
   createddate: string;
 }
@@ -58,8 +58,8 @@ function MobileProductCard({
   onImageClick,
 }: {
   item: CategoryRow;
-  onEdit: (id: number) => void;
-  onDelete: (id: number) => void;
+  onEdit: (id: number, row: CategoryRow) => void;
+  onDelete: (id: number, row: CategoryRow) => void;
   onImageClick: (docpath: string) => void;
 }) {
   return (
@@ -72,7 +72,7 @@ function MobileProductCard({
             className="block"
           >
             <img
-              src={`${API_URL}/api/image/${item.docpath}`}
+              src={`${API_BASE_URL}/api/image/${item.docpath}`}
               alt={item.name}
               className="w-20 h-20 object-cover rounded-lg border border-border hover:opacity-80 transition-opacity"
             />
@@ -96,7 +96,7 @@ function MobileProductCard({
               variant="ghost"
               size="icon"
               className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10"
-              onClick={() => onEdit(item.id)}
+              onClick={() => onEdit(item.id, item)}
             >
               <Pencil className="h-4 w-4" />
             </Button>
@@ -104,25 +104,21 @@ function MobileProductCard({
               variant="ghost"
               size="icon"
               className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-              onClick={() => onDelete(item.id)}
+              onClick={() => onDelete(item.id, item)}
             >
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>
         </div>
 
-        <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+        <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-sm">
           <div>
             <span className="text-muted-foreground">Price: </span>
             <span className="text-foreground font-medium">
               {item.lastprice ? `₹${Number(item.lastprice).toFixed(2)}` : "-"}
             </span>
           </div>
-          <div>
-            <span className="text-muted-foreground">Min Stock: </span>
-            <span className="text-foreground font-medium">{item.lowstocklevel || "-"}</span>
-          </div>
-          <div className="col-span-2">
+          <div className="col-span-1 text-xs mt-1">
             <span className="text-muted-foreground">By: </span>
             <span className="text-foreground">{item.modifiedby || "-"}</span>
             <span className="text-muted-foreground"> on </span>
@@ -144,6 +140,7 @@ export function CategoriesTable() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedRow, setSelectedRow] = useState<CategoryRow | null>(null);
   const [imageUrl, setImageUrl] = useState("");
 
   // Data and pagination state
@@ -154,7 +151,7 @@ export function CategoriesTable() {
   const [pageSize, setPageSize] = useState<number>(10);
   const [searchText, setSearchText] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  
+
   // Infinite scroll state
   const [hasMore, setHasMore] = useState(true);
   const [currentOffset, setCurrentOffset] = useState(0);
@@ -191,7 +188,7 @@ export function CategoriesTable() {
       // For 50, 100, All (-1) use chunked loading
       const useInfiniteScroll = pageSize > 10 || pageSize === -1;
       const fetchLength = useInfiniteScroll ? CHUNK_SIZE : pageSize;
-      
+
       const requestBody = {
         draw: 1,
         start: offset,
@@ -202,14 +199,13 @@ export function CategoriesTable() {
           { data: "name", name: "", searchable: true, orderable: true, search: { value: "", regex: false } },
           { data: "docpath", name: "", searchable: false, orderable: false, search: { value: "", regex: false } },
           { data: "lastprice", name: "", searchable: true, orderable: true, search: { value: "", regex: false } },
-          { data: "lowstocklevel", name: "", searchable: true, orderable: true, search: { value: "", regex: false } },
           { data: "modifiedby", name: "", searchable: true, orderable: true, search: { value: "", regex: false } },
           { data: "createddate", name: "", searchable: true, orderable: true, search: { value: "", regex: false } },
         ],
         search: { value: debouncedSearch, regex: false },
       };
 
-      const response = await fetch(`${API_URL}/api/categories`, {
+      const response = await fetchApi(`${API_BASE_URL}/api/categories`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -217,21 +213,28 @@ export function CategoriesTable() {
 
       const result: ApiResponse = await response.json();
       const newData = result.data || [];
-      
+
       setTotalRecords(result.recordsFiltered || result.recordsTotal || 0);
-      
+
       if (append) {
         setRowData(prev => [...prev, ...newData]);
+        const newOffset = offset + newData.length;
+        const maxRecords = pageSize === -1 ? result.recordsFiltered : Math.min(pageSize, result.recordsFiltered);
+        setHasMore(newOffset < maxRecords);
+        setCurrentOffset(newOffset);
       } else {
         setRowData(newData);
+        if (pageSize === 10) {
+          setCurrentOffset(offset);
+          setHasMore(offset + newData.length < result.recordsFiltered);
+        } else {
+          const newOffset = offset + newData.length;
+          const maxRecords = pageSize === -1 ? result.recordsFiltered : Math.min(pageSize, result.recordsFiltered);
+          setHasMore(newOffset < maxRecords);
+          setCurrentOffset(newOffset);
+        }
       }
 
-      // Check if there's more data to load
-      const newOffset = offset + newData.length;
-      const maxRecords = pageSize === -1 ? result.recordsFiltered : Math.min(pageSize, result.recordsFiltered);
-      setHasMore(newOffset < maxRecords);
-      setCurrentOffset(newOffset);
-      
     } catch (error) {
       console.error("Error fetching data:", error);
       if (!append) {
@@ -289,28 +292,30 @@ export function CategoriesTable() {
   // Handle scroll for AG Grid (desktop)
   const handleGridScroll = useCallback(() => {
     if (!gridApi || pageSize === 10 || loadingMore || !hasMore) return;
-    
+
     const verticalScrollPosition = gridApi.getVerticalPixelRange();
     const totalHeight = gridApi.getDisplayedRowCount() * 48; // rowHeight
     const viewportHeight = 500; // Grid height
-    
+
     if (verticalScrollPosition.bottom >= totalHeight - 100) {
       loadMore();
     }
   }, [gridApi, pageSize, loadingMore, hasMore, loadMore]);
 
-  const handleEdit = (id: number) => {
+  const handleEdit = (id: number, row: CategoryRow) => {
     setSelectedId(id);
+    setSelectedRow(row);
     setShowEditModal(true);
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = (id: number, row: CategoryRow) => {
     setSelectedId(id);
+    setSelectedRow(row);
     setShowDeleteModal(true);
   };
 
   const handleImageClick = (docpath: string) => {
-    setImageUrl(`${API_URL}/categories/${docpath}`);
+    setImageUrl(`${API_BASE_URL}/categories/${docpath}`);
     setShowImageModal(true);
   };
 
@@ -334,14 +339,13 @@ export function CategoriesTable() {
           { data: "name", name: "", searchable: true, orderable: true, search: { value: "", regex: false } },
           { data: "docpath", name: "", searchable: false, orderable: false, search: { value: "", regex: false } },
           { data: "lastprice", name: "", searchable: true, orderable: true, search: { value: "", regex: false } },
-          { data: "lowstocklevel", name: "", searchable: true, orderable: true, search: { value: "", regex: false } },
           { data: "modifiedby", name: "", searchable: true, orderable: true, search: { value: "", regex: false } },
           { data: "createddate", name: "", searchable: true, orderable: true, search: { value: "", regex: false } },
         ],
         search: { value: debouncedSearch, regex: false },
       };
 
-      const response = await fetch(`${API_URL}/api/categories`, {
+      const response = await fetchApi(`${API_BASE_URL}/api/categories`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -355,14 +359,13 @@ export function CategoriesTable() {
         return;
       }
 
-      const headers = ["Category", "Product", "Last Price", "Min Stock", "Created By", "Created Date"];
+      const headers = ["Category", "Product", "Last Price", "Created By", "Created Date"];
       const csvRows = [
         headers.join(","),
         ...allData.map((row) => [
           `"${(row.category || "").replace(/"/g, '""')}"`,
           `"${(row.name || "").replace(/"/g, '""')}"`,
           row.lastprice || "",
-          row.lowstocklevel || "",
           `"${(row.modifiedby || "").replace(/"/g, '""')}"`,
           row.createddate ? new Date(row.createddate).toLocaleDateString("en-GB") : "",
         ].join(","))
@@ -412,7 +415,7 @@ export function CategoriesTable() {
             className="flex items-center justify-center w-full h-full"
           >
             <img
-              src={`${API_URL}/api/image/${params.value}`}
+              src={`${API_BASE_URL}/api/image/${params.value}`}
               alt="Category"
               className="w-8 h-8 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
             />
@@ -427,12 +430,6 @@ export function CategoriesTable() {
       sortable: true,
       valueFormatter: (params) =>
         params.value ? `₹${Number(params.value).toFixed(2)}` : "",
-    },
-    {
-      headerName: "Min Stock",
-      field: "lowstocklevel",
-      width: 100,
-      sortable: true,
     },
     {
       headerName: "Created By",
@@ -462,7 +459,7 @@ export function CategoriesTable() {
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-primary hover:text-primary hover:bg-primary/10"
-              onClick={() => handleEdit(params.data.id)}
+              onClick={() => handleEdit(params.data.id, params.data)}
             >
               <Pencil className="h-3.5 w-3.5" />
             </Button>
@@ -470,7 +467,7 @@ export function CategoriesTable() {
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
-              onClick={() => handleDelete(params.data.id)}
+              onClick={() => handleDelete(params.data.id, params.data)}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
@@ -490,29 +487,25 @@ export function CategoriesTable() {
   };
 
   // Calculate displayed records info
-  const displayedCount = rowData.length;
-  const showingText = totalRecords > 0 
-    ? `Showing ${displayedCount} of ${totalRecords} entries`
+  const startRecord = totalRecords === 0 ? 0 : (pageSize === 10 ? currentOffset + 1 : 1);
+  const endRecord = pageSize === 10 
+    ? Math.min(currentOffset + pageSize, totalRecords) 
+    : rowData.length;
+  const showingText = totalRecords > 0
+    ? `Showing ${startRecord} to ${endRecord} of ${totalRecords} entries`
     : "No entries found";
 
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <Link href="/">
-            <Button variant="ghost" size="icon" className="h-9 w-9">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              Master Catalogue
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Manage your inventory categories and products
-            </p>
-          </div>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            Master Catalogue
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Manage your inventory categories and products
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={exportToExcel} className="gap-2">
@@ -556,7 +549,7 @@ export function CategoriesTable() {
 
       {/* Desktop Table View - Hidden on mobile */}
       <div className="hidden md:block rounded-lg border bg-card overflow-hidden">
-        <div 
+        <div
           ref={desktopScrollRef}
           className="h-[500px] w-full relative overflow-auto"
           onScroll={handleGridScroll}
@@ -627,7 +620,7 @@ export function CategoriesTable() {
                     <span className="text-sm">Loading more...</span>
                   </div>
                 ) : (
-                  <div className="h-4" /> 
+                  <div className="h-4" />
                 )}
               </div>
             )}
@@ -635,47 +628,85 @@ export function CategoriesTable() {
         )}
       </div>
 
-      {/* Footer with record count */}
-      <div className="flex items-center justify-between text-sm text-muted-foreground">
+      {/* Footer with record count and pagination */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
         <span>{showingText}</span>
-        {hasMore && (pageSize > 10 || pageSize === -1) && !loading && (
-          <span className="text-xs">Scroll down to load more</span>
+        {pageSize === 10 && totalRecords > 0 ? (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const newOffset = Math.max(0, currentOffset - pageSize);
+                setCurrentOffset(newOffset);
+                fetchData(newOffset, false);
+              }}
+              disabled={currentOffset === 0 || loading}
+            >
+              Previous
+            </Button>
+            <span className="text-foreground font-medium">
+              Page {Math.floor(currentOffset / pageSize) + 1} of {Math.max(1, Math.ceil(totalRecords / pageSize))}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const newOffset = currentOffset + pageSize;
+                if (newOffset < totalRecords) {
+                  setCurrentOffset(newOffset);
+                  fetchData(newOffset, false);
+                }
+              }}
+              disabled={currentOffset + pageSize >= totalRecords || loading}
+            >
+              Next
+            </Button>
+          </div>
+        ) : (
+          hasMore && (pageSize > 10 || pageSize === -1) && !loading && (
+            <span className="text-xs">Scroll down to load more</span>
+          )
         )}
       </div>
 
       {/* Modals */}
       <CategoryModal
-        isOpen={showAddModal}
+        open={showAddModal}
         onClose={() => setShowAddModal(false)}
         formType="Add"
-        itemId={null}
+        categoryId={null}
         onSuccess={reloadTable}
       />
 
       <CategoryModal
-        isOpen={showEditModal}
+        open={showEditModal}
         onClose={() => {
           setShowEditModal(false);
           setSelectedId(null);
+          setSelectedRow(null);
         }}
         formType="Edit"
-        itemId={selectedId}
+        categoryId={selectedId}
+        initialData={selectedRow}
         onSuccess={reloadTable}
       />
 
       <CategoryModal
-        isOpen={showDeleteModal}
+        open={showDeleteModal}
         onClose={() => {
           setShowDeleteModal(false);
           setSelectedId(null);
+          setSelectedRow(null);
         }}
         formType="Delete"
-        itemId={selectedId}
+        categoryId={selectedId}
+        initialData={selectedRow}
         onSuccess={reloadTable}
       />
 
       <ImageModal
-        isOpen={showImageModal}
+        open={showImageModal}
         onClose={() => {
           setShowImageModal(false);
           setImageUrl("");
